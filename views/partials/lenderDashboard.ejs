@@ -1,0 +1,450 @@
+<div class="panel">
+  <h2>Pending Funding Requests</h2>
+  <div id="lender-pending-requests">
+    <p>Loading pending requests...</p>
+  </div>
+</div>
+
+<!-- Milestones Pending Approval Section -->
+<div class="panel">
+  <h2>Milestones Pending Your Approval</h2>
+  <div id="lender-pending-milestones">
+    <p>Loading milestones...</p>
+  </div>
+</div>
+
+<!-- Approval Modal -->
+<div id="lender-approval-modal" class="modal" style="display: none;">
+  <div class="modal-content" style="max-width: 600px;">
+    <h2>Approve Funding Request</h2>
+    <div id="approval-order-details"></div>
+    <form id="lender-approval-form">
+      <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+        <button type="submit" class="btn-success" style="flex: 1;">✓ Approve & Create Milestones</button>
+        <button type="button" onclick="closeApprovalModal()" style="flex: 1;">Cancel</button>
+      </div>
+      <div id="approval-error" class="error" style="margin-top: 0.5rem;"></div>
+    </form>
+  </div>
+</div>
+
+<!-- Rejection Modal -->
+<div id="lender-rejection-modal" class="modal" style="display: none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <h2>Reject Funding Request</h2>
+    <div id="rejection-order-details"></div>
+    <form id="lender-rejection-form">
+      <div class="form-group">
+        <label>Rejection Reason (optional):</label>
+        <textarea id="rejection-reason" rows="3" placeholder="Explain why this funding request is being rejected..."></textarea>
+      </div>
+      <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+        <button type="submit" class="btn-danger" style="flex: 1;">✗ Reject Request</button>
+        <button type="button" onclick="closeRejectionModal()" style="flex: 1;">Cancel</button>
+      </div>
+      <div id="rejection-error" class="error" style="margin-top: 0.5rem;"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const API_BASE = '/api';
+
+    function renderPendingRequests(orders, notifications) {
+      const container = document.getElementById('lender-pending-requests');
+      if (!container) return;
+
+      if (orders.length === 0) {
+        container.innerHTML = '<p class="empty-state">No pending funding requests.</p>';
+        return;
+      }
+
+      container.innerHTML = `
+        <div style="margin-bottom: 1rem;">
+          <p><strong>You have ${orders.length} pending funding request${orders.length !== 1 ? 's' : ''}</strong></p>
+        </div>
+        ${orders.map(order => `
+          <div class="order-card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+              <h3 style="margin: 0;">Order: ${order.order_id}</h3>
+              <span class="status-badge status-${order.status.toLowerCase().replace(/_/g, '-')}" style="padding: 0.25rem 0.5rem; background: #fff3cd; border-radius: 3px; color: #856404;">${order.status.replace(/_/g, ' ')}</span>
+            </div>
+            <div style="margin-bottom: 0.5rem;">
+              <p><strong>Buyer:</strong> ${order.buyer_name}</p>
+              <p><strong>Order Value:</strong> $${order.value.toLocaleString()}</p>
+              <p><strong>Delivery Date:</strong> ${new Date(order.delivery_date).toLocaleDateString()}</p>
+              <p><strong>Supplier:</strong> ${order.supplier?.name || 'N/A'} (${order.supplier?.email || 'N/A'})</p>
+            </div>
+            <div style="margin-top: 0.75rem;">
+              <p><strong>Milestone Breakdown:</strong></p>
+              <ul style="margin-left: 1.5rem; margin-top: 0.25rem;">
+                ${order.milestones.map(m => `<li>${m.name}: ${m.percentage}% ($${((order.value * m.percentage) / 100).toLocaleString()})</li>`).join('')}
+              </ul>
+            </div>
+            <div style="margin-top: 0.75rem; font-size: 0.85rem; color: #666;">
+              <p>Requested on: ${new Date(order.createdAt).toLocaleString()}</p>
+            </div>
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+              <button onclick="openApprovalModal('${order.id}')" class="btn-success approve-order-btn" data-order-id="${order.id}" style="flex: 1; padding: 0.5rem;">✓ Approve</button>
+              <button onclick="openRejectionModal('${order.id}')" class="btn-danger" style="flex: 1; padding: 0.5rem;">✗ Reject</button>
+            </div>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    async function loadPendingRequests() {
+      const container = document.getElementById('lender-pending-requests');
+      if (!container) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        container.innerHTML = '<p class="error">Please login as a lender to view pending requests.</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/lenders/pending-requests`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!res.ok) {
+          if (res.status === 401) {
+            container.innerHTML = '<p class="error">Session expired. Please refresh the page and login again.</p>';
+          } else {
+            container.innerHTML = `<p class="error">Error loading requests (${res.status})</p>`;
+          }
+          return;
+        }
+        
+        const data = await res.json();
+          renderPendingRequests(data.orders || [], data.notifications || []);
+        } else {
+          container.innerHTML = `<p class="error">Error loading requests: ${data.message || 'Unknown error'}</p>`;
+        }
+      } catch (err) {
+        console.error('Error loading pending requests:', err);
+        container.innerHTML = '<p class="error">Error connecting to server.</p>';
+      }
+    }
+
+    let currentOrderId = null;
+
+    async function openApprovalModal(orderId) {
+      currentOrderId = orderId;
+      const modal = document.getElementById('lender-approval-modal');
+      const detailsEl = document.getElementById('approval-order-details');
+      const timelinesEl = document.getElementById('milestone-timelines');
+      const errorEl = document.getElementById('approval-error');
+      
+      errorEl.textContent = '';
+      modal.style.display = 'flex';
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        errorEl.textContent = 'Please login first.';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/lenders/orders/${orderId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (res.ok && data.order) {
+          const order = data.order;
+          detailsEl.innerHTML = `
+            <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+              <p><strong>Order ID:</strong> ${order.order_id}</p>
+              <p><strong>Buyer:</strong> ${order.buyer_name}</p>
+              <p><strong>Order Value:</strong> $${order.value.toLocaleString()}</p>
+              <p><strong>Supplier:</strong> ${order.supplier?.name || 'N/A'} (${order.supplier?.email || 'N/A'})</p>
+              <p><strong>Milestones to be created:</strong></p>
+              <ul style="margin-left: 1.5rem; margin-top: 0.25rem;">
+                ${order.milestones.map((m, idx) => `<li>${m.name}: ${m.percentage}% ($${((order.value * m.percentage) / 100).toLocaleString()})  <strong>${idx === 0 ? '(PENDING)' : '(LOCKED)'}</strong></li>`).join('')}
+              </ul>
+            </div>
+          `;
+        } else {
+          errorEl.textContent = data.message || 'Error loading order details.';
+        }
+      } catch (err) {
+        console.error('Error loading order:', err);
+        errorEl.textContent = 'Error connecting to server.';
+      }
+    }
+
+    function closeApprovalModal() {
+      document.getElementById('lender-approval-modal').style.display = 'none';
+      currentOrderId = null;
+    }
+
+    async function openRejectionModal(orderId) {
+      currentOrderId = orderId;
+      const modal = document.getElementById('lender-rejection-modal');
+      const detailsEl = document.getElementById('rejection-order-details');
+      const errorEl = document.getElementById('rejection-error');
+      
+      errorEl.textContent = '';
+      modal.style.display = 'flex';
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        errorEl.textContent = 'Please login first.';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/lenders/orders/${orderId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+
+        if (res.ok && data.order) {
+          const order = data.order;
+          detailsEl.innerHTML = `
+            <div style="margin-bottom: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+              <p><strong>Order ID:</strong> ${order.order_id}</p>
+              <p><strong>Buyer:</strong> ${order.buyer_name}</p>
+              <p><strong>Order Value:</strong> $${order.value.toLocaleString()}</p>
+              <p><strong>Supplier:</strong> ${order.supplier?.name || 'N/A'} (${order.supplier?.email || 'N/A'})</p>
+            </div>
+          `;
+        } else {
+          errorEl.textContent = data.message || 'Error loading order details.';
+        }
+      } catch (err) {
+        console.error('Error loading order:', err);
+        errorEl.textContent = 'Error connecting to server.';
+      }
+    }
+
+    function closeRejectionModal() {
+      document.getElementById('lender-rejection-modal').style.display = 'none';
+      document.getElementById('rejection-reason').value = '';
+      currentOrderId = null;
+    }
+
+    // Render pending milestones for lender approval (2nd milestone onwards)
+    async function loadPendingMilestones() {
+      const container = document.getElementById('lender-pending-milestones');
+      if (!container) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        container.innerHTML = '<p class="error">Please login as a lender to view milestones.</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/lenders/pending-milestones`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!res.ok) {
+          if (res.status === 401) {
+            container.innerHTML = '<p class="error">Session expired. Please refresh the page and login again.</p>';
+          } else {
+            container.innerHTML = `<p class="error">Error loading milestones (${res.status})</p>`;
+          }
+          return;
+        }
+        
+        const data = await res.json();
+        if (data.milestones && data.milestones.length > 0) {
+          renderPendingMilestones(data.milestones);
+        } else {
+          container.innerHTML = '<p class="empty-state">No pending milestones. All milestones are either completed or awaiting supplier invoice.</p>';
+        }
+      } catch (err) {
+        console.error('Error loading pending milestones:', err);
+        container.innerHTML = '<p class="error">Error connecting to server.</p>';
+      }
+    }
+
+    function renderPendingMilestones(milestones) {
+      const container = document.getElementById('lender-pending-milestones');
+      if (!container) return;
+
+      container.innerHTML = `
+        <div style="margin-bottom: 1rem;">
+          <p><strong>You have ${milestones.length} milestone${milestones.length !== 1 ? 's' : ''} ready for approval</strong></p>
+        </div>
+        ${milestones.map(m => `
+          <div class="order-card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+              <div>
+                <h3 style="margin: 0;">${m.name}</h3>
+                <p style="margin: 0.25rem 0 0 0; color: #666;">Order: ${m.order_id}</p>
+              </div>
+              <span style="padding: 0.25rem 0.75rem; background: #fef3c7; border-radius: 3px; color: #92400e; font-weight: 600; font-size: 0.85rem;">Pending Your Approval</span>
+            </div>
+            <div style="margin-bottom: 0.75rem;">
+              <p style="margin: 0; color: #666;"><strong>Amount:</strong> $${m.amount.toLocaleString()}</p>
+              <p style="margin: 0.25rem 0 0 0; color: #666;"><strong>Timeline:</strong> ${m.timeline_days} days</p>
+              <p style="margin: 0.25rem 0 0 0; color: #666;"><strong>Supplier:</strong> ${m.supplier_name}</p>
+              <p style="margin: 0.25rem 0 0 0; color: #666;"><strong>Invoice Status:</strong> ${m.proof_verification_status === 'VERIFIED' ? '✓ Verified' : m.proof_verification_status === 'PENDING' ? '⏳ Under Review' : '✗ Rejected'}</p>
+            </div>
+            <button onclick="approveMilestoneFlow('${m.id}', '${m.name}')" class="btn-success" style="width: 100%; padding: 0.75rem; margin-top: 0.5rem;">✓ Approve Milestone</button>
+          </div>
+        `).join('')}
+      `;
+    }
+
+    // Approve milestone for lender (2nd milestone onwards)
+    async function approveMilestoneFlow(milestoneId, milestoneName) {
+      if (!confirm(`Approve milestone "${milestoneName}"?\\n\\nThis will allow the supplier to proceed with this milestone.`)) {
+        return;
+      }
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        alert('Please login first.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/milestones/${milestoneId}/approve`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          alert(`✓ Milestone "${milestoneName}" approved!`);
+          loadPendingMilestones();
+          // Also refresh main pending requests in case it affects anything
+          loadPendingRequests();
+        } else {
+          alert(data.message || 'Failed to approve milestone');
+        }
+      } catch (err) {
+        console.error('Error approving milestone:', err);
+        alert('Error approving milestone. Please try again.');
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      loadPendingRequests();
+      loadPendingMilestones();
+
+      // Approval form handler
+      const approvalForm = document.getElementById('lender-approval-form');
+      if (approvalForm) {
+        approvalForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const errorEl = document.getElementById('approval-error');
+          errorEl.textContent = '';
+
+          const token = localStorage.getItem('authToken');
+          if (!token) {
+            errorEl.textContent = 'Please login first.';
+            return;
+          }
+
+          // Disable submit button to prevent double-click
+          const submitBtn = approvalForm.querySelector('button[type="submit"]');
+          const originalText = submitBtn.textContent;
+          submitBtn.disabled = true;
+          submitBtn.textContent = '⏳ Processing...';
+
+          try {
+            const res = await fetch(`${API_BASE}/orders/${currentOrderId}/lender-approve`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({})
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              alert('Funding approved successfully! Milestones created.');
+              closeApprovalModal();
+              loadPendingRequests(); // Refresh list
+            } else {
+              errorEl.textContent = data.message || 'Failed to approve funding.';
+              submitBtn.disabled = false;
+              submitBtn.textContent = originalText;
+            }
+          } catch (err) {
+            console.error('Error approving funding:', err);
+            errorEl.textContent = 'Error connecting to server.';
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+          }
+        });
+      }
+
+      // Rejection form handler
+      const rejectionForm = document.getElementById('lender-rejection-form');
+      if (rejectionForm) {
+        rejectionForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const errorEl = document.getElementById('rejection-error');
+          errorEl.textContent = '';
+
+          const rejection_reason = document.getElementById('rejection-reason').value.trim();
+
+          const token = localStorage.getItem('authToken');
+          if (!token) {
+            errorEl.textContent = 'Please login first.';
+            return;
+          }
+
+          try {
+            const res = await fetch(`${API_BASE}/lenders/orders/${currentOrderId}/reject`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ rejection_reason: rejection_reason || null })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              alert('Funding request rejected.');
+              closeRejectionModal();
+              loadPendingRequests(); // Refresh list
+            } else {
+              errorEl.textContent = data.message || 'Failed to reject funding.';
+            }
+          } catch (err) {
+            console.error('Error rejecting funding:', err);
+            errorEl.textContent = 'Error connecting to server.';
+          }
+        });
+      }
+
+      // Close modals when clicking outside
+      window.onclick = function(event) {
+        const approvalModal = document.getElementById('lender-approval-modal');
+        const rejectionModal = document.getElementById('lender-rejection-modal');
+        if (event.target === approvalModal) {
+          closeApprovalModal();
+        }
+        if (event.target === rejectionModal) {
+          closeRejectionModal();
+        }
+      };
+    });
+
+    // Expose functions globally for onclick handlers
+    window.openApprovalModal = openApprovalModal;
+    window.openRejectionModal = openRejectionModal;
+    window.closeApprovalModal = closeApprovalModal;
+    window.closeRejectionModal = closeRejectionModal;
+    window.approveMilestoneFlow = approveMilestoneFlow;
+  })();
+</script>

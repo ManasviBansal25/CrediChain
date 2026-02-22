@@ -1,0 +1,464 @@
+<div class="panel">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <h2 style="margin: 0;">All Orders - Complete Details</h2>
+    <button onclick="refreshAdminOrders()" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">🔄 </button>
+  </div>
+  <div id="admin-all-orders">
+    <p>Loading orders...</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Orders Pending Fund Lock</h2>
+  <div id="admin-pending-lock">
+    <p>Loading orders...</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Milestone Proofs Pending Verification</h2>
+  <div id="admin-proofs-pending">
+    <p>Loading proofs...</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Transaction Ledger</h2>
+  <div id="admin-ledger">
+    <p>Loading ledger...</p>
+  </div>
+</div>
+
+<!-- Proof Verification Modal -->
+<div id="proof-verify-modal" class="modal" style="display: none;">
+  <div class="modal-content" style="max-width: 700px;">
+    <h2>Verify Proof</h2>
+    <div id="verify-milestone-info"></div>
+    <div id="verify-proof-preview" style="margin: 1rem 0;"></div>
+    <form id="proof-verify-form">
+      <div class="form-group">
+        <label>Verification Decision:</label>
+        <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="radio" name="verified" value="true" required />
+            <span>✓ Verify</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="radio" name="verified" value="false" required />
+            <span>✗ Reject</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group" id="rejection-reason-group" style="display: none;">
+        <label>Rejection Reason (optional):</label>
+        <textarea id="rejection-reason" rows="3" placeholder="Explain why this proof is being rejected..."></textarea>
+      </div>
+      <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+        <button type="submit" class="btn-success" style="flex: 1;">Submit Verification</button>
+        <button type="button" onclick="closeProofVerifyModal()" style="flex: 1;">Cancel</button>
+      </div>
+      <div id="verify-error" class="error" style="margin-top: 0.5rem;"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const API_BASE = '/api';
+
+    async function loadPendingLockOrders() {
+      const container = document.getElementById('admin-pending-lock');
+      if (!container) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        container.innerHTML = '<p class="error">Please login as admin.</p>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/orders`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) {
+          if (res.status === 401) {
+            container.innerHTML = '<p class="error">Session expired. Please refresh the page and login again.</p>';
+          } else {
+            container.innerHTML = `<p class="error">Error loading orders (${res.status})</p>`;
+          }
+          return;
+        }
+        
+        const data = await res.json();
+          // Filter orders that are LENDER_APPROVED but funds not locked
+          const pendingLock = data.orders.filter(o => 
+            o.status === 'LENDER_APPROVED' && !o.funds_locked
+          );
+
+          if (pendingLock.length === 0) {
+            container.innerHTML = '<p class="empty-state">No orders pending fund lock.</p>';
+            return;
+          }
+
+          container.innerHTML = `
+            <div style="margin-bottom: 1rem;">
+              <p><strong>${pendingLock.length} order${pendingLock.length !== 1 ? 's' : ''} awaiting fund lock</strong></p>
+            </div>
+            ${pendingLock.map(order => `
+              <div class="order-card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; background: #fff3cd;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                  <h3 style="margin: 0;">Order: ${order.order_id}</h3>
+                  <span class="status-badge" style="padding: 0.25rem 0.5rem; background: #fff3cd; border-radius: 3px; color: #856404;">LENDER APPROVED</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                  <p><strong>Buyer:</strong> ${order.buyer_name}</p>
+                  <p><strong>Order Value:</strong> $${order.value.toLocaleString()}</p>
+                  <p><strong>Supplier:</strong> ${order.created_by?.name || 'N/A'}</p>
+                  <p><strong>Lender:</strong> ${order.lender_id?.name || 'N/A'}</p>
+                  <p><strong>Funds Locked:</strong> <span style="color: #dc3545; font-weight: bold;">NO</span></p>
+                </div>
+                <div style="margin-top: 1rem;">
+                  <button onclick="lockFunds('${order.id}')" class="btn-success" style="padding: 0.5rem 1rem;">
+                    🔒 Lock Funds
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          `;
+        } else {
+          container.innerHTML = `<p class="error">Error: ${data.message || 'Unknown error'}</p>`;
+        }
+      } catch (err) {
+        console.error('Error loading orders:', err);
+        container.innerHTML = '<p class="error">Error connecting to server.</p>';
+      }
+    }
+
+    async function loadLedger() {
+      const container = document.getElementById('admin-ledger');
+      if (!container) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        container.innerHTML = '<p class="error">Please login as admin.</p>';
+        return;
+      }
+
+      try {
+        // Get all orders to fetch transactions
+        const ordersRes = await fetch(`${API_BASE}/orders`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const ordersData = await ordersRes.json();
+
+        if (!ordersRes.ok || !ordersData.orders) {
+          container.innerHTML = '<p class="error">Error loading orders.</p>';
+          return;
+        }
+
+        // Fetch transactions for all orders
+        const allTransactions = [];
+        for (const order of ordersData.orders) {
+          try {
+            const txRes = await fetch(`${API_BASE}/transactions/order/${order.id}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!txRes.ok) {
+              if (txRes.status === 401) {
+                container.innerHTML = '<p class="error">Session expired. Please refresh the page and login again.</p>';
+                return;
+              }
+              continue; // Skip this order's transactions
+            }
+            
+            const txData = await txRes.json();
+            if (txData.transactions) {
+              allTransactions.push(...txData.transactions.map(t => ({
+                ...t,
+                order_id_display: order.order_id
+              })));
+            }
+          } catch (err) {
+            console.error(`Error loading transactions for order ${order.id}:`, err);
+          }
+        }
+
+        // Sort by date (newest first)
+        allTransactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        if (allTransactions.length === 0) {
+          container.innerHTML = '<p class="empty-state">No transactions recorded yet.</p>';
+          return;
+        }
+
+        container.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            <p><strong>Total Transactions: ${allTransactions.length}</strong></p>
+          </div>
+          <div style="max-height: 400px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                  <th style="padding: 0.5rem; text-align: left;">Date</th>
+                  <th style="padding: 0.5rem; text-align: left;">Order</th>
+                  <th style="padding: 0.5rem; text-align: left;">Type</th>
+                  <th style="padding: 0.5rem; text-align: right;">Amount</th>
+                  <th style="padding: 0.5rem; text-align: left;">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${allTransactions.map(tx => `
+                  <tr style="border-bottom: 1px solid #dee2e6;">
+                    <td style="padding: 0.5rem; font-size: 0.85rem;">${new Date(tx.createdAt).toLocaleString()}</td>
+                    <td style="padding: 0.5rem;">${tx.order_id_display || 'N/A'}</td>
+                    <td style="padding: 0.5rem;">
+                      <span class="tx-type tx-${tx.type.toLowerCase()}" style="padding: 0.25rem 0.5rem; border-radius: 3px; font-weight: bold;">
+                        ${tx.type}
+                      </span>
+                    </td>
+                    <td style="padding: 0.5rem; text-align: right; font-weight: bold;">$${tx.amount.toLocaleString()}</td>
+                    <td style="padding: 0.5rem; font-size: 0.85rem; color: #666;">${tx.description || 'N/A'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) {
+        console.error('Error loading ledger:', err);
+        container.innerHTML = '<p class="error">Error loading transaction ledger.</p>';
+      }
+    }
+
+    async function lockFunds(orderId) {
+      if (!confirm('Lock funds for this order? This will create a ledger entry and reserve funds in escrow.')) {
+        return;
+      }
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        alert('Please login as admin.');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/orders/${orderId}/lock-funds`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          alert(`Funds locked successfully!\n\nTransaction recorded:\n${data.transaction.description}\nAmount: $${data.transaction.amount.toLocaleString()}`);
+          loadPendingLockOrders();
+          loadLedger(); // Refresh ledger
+        } else {
+          alert(`Error: ${data.message || 'Failed to lock funds'}`);
+        }
+      } catch (err) {
+        console.error('Error locking funds:', err);
+        alert('Error connecting to server.');
+      }
+    }
+
+    async function loadPendingProofs() {
+      const container = document.getElementById('admin-proofs-pending');
+      if (!container) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        container.innerHTML = '<p class="error">Please login as admin.</p>';
+        return;
+      }
+
+      try {
+        const ordersRes = await fetch(`${API_BASE}/orders`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!ordersRes.ok) {
+          if (ordersRes.status === 401) {
+            container.innerHTML = '<p class="error">Session expired. Please refresh the page and login again.</p>';
+          } else {
+            container.innerHTML = `<p class="error">Error loading orders (${ordersRes.status})</p>`;
+          }
+          return;
+        }
+        
+        const ordersData = await ordersRes.json();
+
+        // Collect all milestones with pending proofs
+        const pendingProofs = [];
+        for (const order of ordersData.orders) {
+          try {
+            const milestonesRes = await fetch(`${API_BASE}/orders/${order.id}/milestones`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const milestonesData = await milestonesRes.json();
+            if (milestonesRes.ok && milestonesData.milestones) {
+              milestonesData.milestones.forEach(m => {
+                if (m.proof_file_path && m.proof_verification_status === 'PENDING') {
+                  pendingProofs.push({ ...m, order_id: order.order_id, order_value: order.value });
+                }
+              });
+            }
+          } catch (err) {
+            console.error(`Error loading milestones for order ${order.id}:`, err);
+          }
+        }
+
+        if (pendingProofs.length === 0) {
+          container.innerHTML = '<p class="empty-state">No proofs pending verification.</p>';
+          return;
+        }
+
+        container.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            <p><strong>${pendingProofs.length} proof${pendingProofs.length !== 1 ? 's' : ''} awaiting verification</strong></p>
+          </div>
+          ${pendingProofs.map(proof => `
+            <div class="order-card" style="margin-bottom: 1rem; padding: 1rem; border: 1px solid #ddd; border-radius: 4px; background: #fff3cd;">
+              <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div>
+                  <h4 style="margin: 0;">${proof.name}</h4>
+                  <p style="margin: 0.25rem 0;"><strong>Order:</strong> ${proof.order_id} | <strong>Amount:</strong> $${proof.amount.toLocaleString()}</p>
+                  <p style="margin: 0.25rem 0; font-size: 0.85rem;">
+                    <a href="${proof.proof_url}" target="_blank" style="color: #007bff;">View Proof File</a>
+                  </p>
+                </div>
+                <button onclick="openProofVerifyModal('${proof.id}', '${proof.name}', '${proof.order_id}', '${proof.proof_url}')" class="btn-success">
+                  Verify Proof
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        `;
+      } catch (err) {
+        console.error('Error loading pending proofs:', err);
+        container.innerHTML = '<p class="error">Error loading proofs.</p>';
+      }
+    }
+
+    let currentVerifyMilestoneId = null;
+
+    function openProofVerifyModal(milestoneId, milestoneName, orderId, proofUrl) {
+      currentVerifyMilestoneId = milestoneId;
+      const modal = document.getElementById('proof-verify-modal');
+      const infoEl = document.getElementById('verify-milestone-info');
+      const previewEl = document.getElementById('verify-proof-preview');
+      const errorEl = document.getElementById('verify-error');
+      
+      errorEl.textContent = '';
+      infoEl.innerHTML = `
+        <p><strong>Milestone:</strong> ${milestoneName}</p>
+        <p><strong>Order:</strong> ${orderId}</p>
+      `;
+      
+      // Show proof preview
+      const fileExt = proofUrl.split('.').pop().toLowerCase();
+      if (['jpg', 'jpeg', 'png'].includes(fileExt)) {
+        previewEl.innerHTML = `<img src="${proofUrl}" style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px;" />`;
+      } else {
+        previewEl.innerHTML = `<iframe src="${proofUrl}" style="width: 100%; height: 400px; border: 1px solid #ddd; border-radius: 4px;"></iframe>`;
+      }
+      
+      modal.style.display = 'flex';
+    }
+
+    function closeProofVerifyModal() {
+      document.getElementById('proof-verify-modal').style.display = 'none';
+      document.getElementById('proof-verify-form').reset();
+      document.getElementById('rejection-reason-group').style.display = 'none';
+      currentVerifyMilestoneId = null;
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      loadPendingLockOrders();
+      loadLedger();
+      loadPendingProofs();
+
+      // Handle verification form
+      const verifyForm = document.getElementById('proof-verify-form');
+      if (verifyForm) {
+        // Show/hide rejection reason based on radio selection
+        verifyForm.querySelectorAll('input[name="verified"]').forEach(radio => {
+          radio.addEventListener('change', function() {
+            const rejectionGroup = document.getElementById('rejection-reason-group');
+            if (this.value === 'false') {
+              rejectionGroup.style.display = 'block';
+            } else {
+              rejectionGroup.style.display = 'none';
+            }
+          });
+        });
+
+        verifyForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const errorEl = document.getElementById('verify-error');
+          errorEl.textContent = '';
+
+          const verified = document.querySelector('input[name="verified"]:checked')?.value === 'true';
+          const rejectionReason = document.getElementById('rejection-reason').value.trim();
+
+          const token = localStorage.getItem('authToken');
+          if (!token) {
+            errorEl.textContent = 'Please login first.';
+            return;
+          }
+
+          try {
+            const res = await fetch(`${API_BASE}/milestones/${currentVerifyMilestoneId}/verify-proof`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                verified: verified,
+                rejection_reason: verified ? null : (rejectionReason || null)
+              })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              alert(verified ? 'Proof verified successfully!' : 'Proof rejected.');
+              closeProofVerifyModal();
+              loadPendingProofs();
+            } else {
+              errorEl.textContent = data.message || 'Failed to verify proof.';
+            }
+          } catch (err) {
+            console.error('Error verifying proof:', err);
+            errorEl.textContent = 'Error connecting to server.';
+          }
+        });
+      }
+
+      // Refresh every 30 seconds
+      setInterval(() => {
+        loadPendingLockOrders();
+        loadLedger();
+        loadPendingProofs();
+      }, 30000);
+
+      // Close modal on outside click
+      window.onclick = function(event) {
+        const modal = document.getElementById('proof-verify-modal');
+        if (event.target === modal) {
+          closeProofVerifyModal();
+        }
+      };
+    });
+
+    // Expose functions globally for onclick handlers
+    window.lockFunds = lockFunds;
+    window.openProofVerifyModal = openProofVerifyModal;
+    window.closeProofVerifyModal = closeProofVerifyModal;
+  })();
+</script>

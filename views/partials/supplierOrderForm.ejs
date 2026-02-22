@@ -1,0 +1,258 @@
+<div class="panel glass" style="max-width: 600px; margin: 0 auto;">
+  <h2 style="font-size:1.5rem; font-weight:700; margin-bottom:16px;">Create New Order</h2>
+  <form id="supplier-order-form" autocomplete="off">
+    <div class="form-stepper">
+      <div class="step active">1</div>
+      <div class="step">2</div>
+      <div class="step">3</div>
+    </div>
+    <div class="form-section">
+      <div class="form-group floating-label">
+        <input type="text" id="buyer-name" required />
+        <label for="buyer-name">Buyer Name</label>
+        <span class="input-status" id="buyer-name-status"></span>
+      </div>
+      <div class="form-group floating-label">
+        <input type="number" id="order-value" min="1" required />
+        <label for="order-value">Order Value <span class="currency">₹</span></label>
+        <span class="input-status" id="order-value-status"></span>
+      </div>
+      <div class="form-group floating-label">
+        <input type="date" id="delivery-date" required />
+        <label for="delivery-date">Delivery Date</label>
+        <span class="input-status" id="delivery-date-status"></span>
+      </div>
+      <div class="form-group floating-label">
+        <select id="lender-id" required>
+          <option value="">Select Lender</option>
+        </select>
+        <label for="lender-id">Lender</label>
+        <span class="input-status" id="lender-id-status"></span>
+      </div>
+      <div class="form-group">
+        <label>Milestone Breakdown</label>
+        <div id="milestone-list"></div>
+        <button type="button" id="add-milestone-row-btn">+ Add Milestone</button>
+        <p style="margin-top: 0.5rem; font-size: 0.9rem;">
+          Total percentage: <span id="total-percentage">0</span>%
+        </p>
+      </div>
+    </div>
+    <div class="form-section">
+      <label style="font-weight:600; margin-bottom:8px; display:block;">Upload Documents</label>
+      <div class="upload-zone" id="order-upload-zone">
+        <span class="upload-icon">📎</span>
+        <span class="upload-text">Drag & Drop files here or click to browse</span>
+        <input type="file" id="order-upload-input" multiple style="display:none;" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
+        <div class="upload-preview" id="order-upload-preview"></div>
+      </div>
+      <div class="upload-progress" id="order-upload-progress"></div>
+    </div>
+    <div class="form-actions" style="margin-top:24px; display:flex; gap:16px; justify-content:flex-end;">
+      <button type="button" class="btn-secondary" id="cancel-order-btn">Cancel</button>
+      <button type="submit" class="btn-success" id="submit-order-btn">Submit Order →</button>
+    </div>
+    <div class="draft-indicator" id="order-draft-indicator">Draft saved <span id="order-draft-timestamp"></span></div>
+    <div id="supplier-order-error" class="error" style="margin-top: 0.5rem;"></div>
+    <div id="supplier-order-success" class="success" style="margin-top: 0.5rem;"></div>
+  </form>
+  <div id="order-confirmation-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="text-align:center;">
+      <div class="success-animation">✔️</div>
+      <h2>Order Submitted!</h2>
+      <p>Your order has been created successfully.</p>
+      <button class="btn" onclick="closeOrderConfirmation()">Go to Dashboard</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+  (function () {
+    const API_BASE = '/api';
+
+    function renderMilestoneRows(state) {
+      const list = document.getElementById('milestone-list');
+      if (!list) return;
+      list.innerHTML = '';
+
+      state.forEach((m, idx) => {
+        const row = document.createElement('div');
+        row.className = 'milestone-row';
+        row.style.marginBottom = '0.5rem';
+        row.innerHTML = `
+          <input type="text" class="milestone-name" placeholder="Milestone name" value="${m.name || ''}" required style="width: 45%"> 
+          <input type="number" class="milestone-percentage" placeholder="%" value="${m.percentage || ''}" min="1" max="100" required style="width: 20%"> %
+          <button type="button" class="remove-milestone-btn" data-idx="${idx}">Remove</button>
+        `;
+        row.querySelector('.remove-milestone-btn').onclick = function () {
+          state.splice(idx, 1);
+          if (state.length === 0) {
+            state.push({ name: '', percentage: '' });
+          }
+          renderMilestoneRows(state);
+          updateTotalPercentage(state);
+        };
+        list.appendChild(row);
+      });
+
+      // Attach change listeners to recalc total
+      list.querySelectorAll('.milestone-percentage').forEach((input, idx) => {
+        input.addEventListener('input', () => {
+          const val = parseFloat(input.value);
+          state[idx].percentage = isNaN(val) ? '' : val;
+          updateTotalPercentage(state);
+        });
+      });
+
+      list.querySelectorAll('.milestone-name').forEach((input, idx) => {
+        input.addEventListener('input', () => {
+          state[idx].name = input.value;
+        });
+      });
+
+      updateTotalPercentage(state);
+    }
+
+    function updateTotalPercentage(state) {
+      const totalEl = document.getElementById('total-percentage');
+      if (!totalEl) return;
+      const total = state.reduce((sum, m) => sum + (parseFloat(m.percentage) || 0), 0);
+      totalEl.textContent = total.toFixed(2);
+    }
+
+    async function loadLenders() {
+      const lenderSelect = document.getElementById('lender-id');
+      if (!lenderSelect) return;
+
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        lenderSelect.innerHTML = '<option value="">Please login first</option>';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/lenders`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await res.json();
+        
+        if (res.ok && data.lenders) {
+          lenderSelect.innerHTML = '<option value="">Select a lender</option>';
+          data.lenders.forEach(lender => {
+            const option = document.createElement('option');
+            option.value = lender.id;
+            option.textContent = `${lender.name} (${lender.email})`;
+            lenderSelect.appendChild(option);
+          });
+        } else {
+          lenderSelect.innerHTML = '<option value="">Error loading lenders</option>';
+        }
+      } catch (err) {
+        console.error('Error loading lenders:', err);
+        lenderSelect.innerHTML = '<option value="">Error loading lenders</option>';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      const form = document.getElementById('supplier-order-form');
+      if (!form) return; // Only run on supplier dashboard
+
+      const errorEl = document.getElementById('supplier-order-error');
+      const successEl = document.getElementById('supplier-order-success');
+      const addRowBtn = document.getElementById('add-milestone-row-btn');
+
+      // Load lenders on page load
+      loadLenders();
+
+      const milestoneState = [{ name: '', percentage: '' }];
+      renderMilestoneRows(milestoneState);
+
+      addRowBtn.addEventListener('click', function () {
+        milestoneState.push({ name: '', percentage: '' });
+        renderMilestoneRows(milestoneState);
+      });
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        errorEl.textContent = '';
+        successEl.textContent = '';
+
+        const order_id = document.getElementById('order-id').value.trim();
+        const buyer_name = document.getElementById('buyer-name').value.trim();
+        const value = parseFloat(document.getElementById('order-value').value);
+        const delivery_date = document.getElementById('delivery-date').value;
+        const lender_id = document.getElementById('lender-id').value;
+
+        if (!lender_id) {
+          errorEl.textContent = 'Please select a lender.';
+          return;
+        }
+
+        const milestones = milestoneState
+          .map(m => ({
+            name: (m.name || '').trim(),
+            percentage: parseFloat(m.percentage)
+          }))
+          .filter(m => m.name && !isNaN(m.percentage));
+
+        if (milestones.length === 0) {
+          errorEl.textContent = 'Please define at least one milestone.';
+          return;
+        }
+
+        const totalPct = milestones.reduce((sum, m) => sum + m.percentage, 0);
+        if (totalPct > 100) {
+          errorEl.textContent = `Total milestone percentage cannot exceed 100%. Current total: ${totalPct}%.`;
+          return;
+        }
+
+        const rawMaterial = milestones.find(m => m.name.toLowerCase().includes('raw material'));
+        if (rawMaterial && rawMaterial.percentage > 40) {
+          errorEl.textContent = 'Raw material milestone cannot exceed 40%.';
+          return;
+        }
+
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+          errorEl.textContent = 'You must be logged in as SUPPLIER to create an order.';
+          return;
+        }
+
+        try {
+          const res = await fetch(`${API_BASE}/orders`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              order_id,
+              buyer_name,
+              value,
+              delivery_date,
+              lender_id,
+              milestones
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            errorEl.textContent = data.message || 'Failed to create order.';
+          } else {
+            successEl.textContent = 'Order created successfully. Awaiting admin approval.';
+            form.reset();
+            milestoneState.splice(0, milestoneState.length, { name: '', percentage: '' });
+            renderMilestoneRows(milestoneState);
+          }
+        } catch (err) {
+          console.error(err);
+          errorEl.textContent = 'Error connecting to server.';
+        }
+      });
+    });
+  })();
+</script>
+

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowFund - Supply Chain Financing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Login Section -->
+    <div id="login-section">
+        <div class="container">
+            <h1>FlowFund</h1>
+            <form id="login-form">
+                <h2>Login</h2>
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="login-email">
+                </div>
+                <div class="form-group">
+                    <label>Password:</label>
+                    <input type="password" id="login-password">
+                </div>
+                
+                <div class="quick-login">
+                    <h3>Quick Login (Demo)</h3>
+                    <div class="form-group">
+                        <label>Login as:</label>
+                        <select id="role-selector">
+                            <option value="">Select Role</option>
+                            <option value="admin">ADMIN</option>
+                            <option value="supplier">SUPPLIER</option>
+                            <option value="lender">LENDER</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <button type="submit">Login</button>
+                <div id="login-error" class="error"></div>
+            </form>
+            
+            <div class="auth-footer">
+                <p>Don't have an account? <a href="/signup" class="auth-link">Sign Up</a></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboard-section" style="display: none;">
+        <div class="header">
+            <h1>FlowFund</h1>
+            <nav class="header-nav">
+                <a href="#" onclick="showDashboard(); return false;" class="nav-link active">Dashboard</a>
+                <a href="#" onclick="showStatistics(); return false;" class="nav-link">Statistics</a>
+            </nav>
+            <div class="user-info">
+                <span id="user-role"></span>
+                <button onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- Analytics Panel -->
+            <div id="analytics-panel" class="panel" style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 32px;">
+                <div class="dashboard-card" style="flex:1; min-width:220px;">
+                    <h3>Total Orders</h3>
+                    <div class="dashboard-value" id="analytics-total-orders">--</div>
+                </div>
+                <div class="dashboard-card" style="flex:1; min-width:220px;">
+                    <h3>Active Milestones</h3>
+                    <div class="dashboard-value" id="analytics-active-milestones">--</div>
+                </div>
+                <div class="dashboard-card" style="flex:1; min-width:220px;">
+                    <h3>Loan Outstanding ($)</h3>
+                    <div class="dashboard-value" id="analytics-loan-outstanding">--</div>
+                </div>
+                <div class="dashboard-card" style="flex:1; min-width:220px;">
+                    <h3>Completed Milestones</h3>
+                    <div class="dashboard-value" id="analytics-completed-milestones">--</div>
+                </div>
+            </div>
+
+            <!-- Action Panel -->
+            <div id="action-panel" class="panel">
+                <h2>Actions</h2>
+                <div id="action-buttons"></div>
+            </div>
+
+            <!-- Admin: All Orders - Complete Details (ADMIN only) -->
+            <div class="panel" id="admin-all-orders-panel" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2 style="margin: 0;">All Orders - Complete Milestone Details</h2>
+                    <button onclick="refreshAdminOrders()" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;"> Refresh Orders</button>
+                </div>
+                <div id="admin-all-orders">
+                    <p>Loading orders...</p>
+                </div>
+            </div>
+
+            <!-- Orders Panel -->
+            <div class="panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">Orders</h2>
+                    <div>
+                        <button onclick="openNotificationsModal()" class="btn-secondary">View Notifications</button>
+                        <button onclick="refreshOrders()" class="btn-secondary" style="margin-left: 8px;">Refresh</button>
+                    </div>
+                </div>
+                <div id="orders-container"></div>
+            </div>
+
+            <!-- Create Order Modal (SUPPLIER only) -->
+                </style>
+            <div id="create-order-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <h2>Create New Order</h2>
+                    <form id="create-order-form">
+                        <div class="form-group">
+                            <label>Order ID:</label>
+                            <input type="text" id="order-id" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Buyer Name:</label>
+                            <input type="text" id="buyer-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Order Value ($):</label>
+                            <input type="number" id="order-value" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Select Lender:</label>
+                            <select id="modal-lender-id" required>
+                                <option value="">Loading lenders...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Delivery Date:</label>
+                            <input type="date" id="delivery-date" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Milestone Breakdown:</label>
+                            <div id="milestone-list"></div>
+                            <button type="button" id="add-milestone-btn">+ Add Milestone</button>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="submit">Create Order</button>
+                            <button type="button" onclick="closeModal('create-order-modal')">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="create-order-error" class="error"></div>
+                </div>
+            </div>
+
+            <!-- Complete Milestone Modal -->
+            <div id="complete-milestone-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <h2>Complete Milestone</h2>
+                    <div id="milestone-info"></div>
+                    <form id="complete-milestone-form">
+                        <div class="form-group">
+                            <label>Proof of Completion:</label>
+                            <textarea id="milestone-proof" required rows="4"></textarea>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="submit">Complete Milestone</button>
+                            <button type="button" onclick="closeModal('complete-milestone-modal')">Cancel</button>
+                        </div>
+                    </form>
+                    <div id="complete-milestone-error" class="error"></div>
+                </div>
+            </div>
+
+            <!-- Order Details Modal -->
+            <div id="order-details-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <h2>Order Details</h2>
+                    <div id="order-details-content"></div>
+                    <button onclick="closeModal('order-details-modal')">Close</button>
+                </div>
+            </div>
+
+            <!-- Notifications Modal -->
+            <div id="notifications-modal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <h2>Notifications</h2>
+                    <div id="notifications-panel" style="max-height: 400px; overflow-y: auto;"></div>
+                    <button onclick="closeModal('notifications-modal')" style="margin-top: 20px;">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .dashboard-card {
+            background: rgba(26, 26, 26, 0.6);
+            border-radius: 14px;
+            border: 1px solid rgba(255, 138, 51, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 26px 20px;
+            margin-bottom: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .dashboard-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 138, 51, 0.4), transparent);
+        }
+        .dashboard-card:hover {
+            border-color: rgba(255, 138, 51, 0.4);
+            box-shadow: 0 12px 48px rgba(255, 138, 51, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+            transform: translateY(-5px);
+        }
+        .dashboard-card h3 {
+            color: #b8b8b8;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+        }
+        .dashboard-value {
+            font-size: 34px;
+            font-weight: 700;
+            color: #ff8a33;
+            margin-bottom: 4px;
+            letter-spacing: -0.02em;
+            text-shadow: 0 0 30px rgba(255, 138, 51, 0.3);
+            filter: drop-shadow(0 0 8px rgba(255, 138, 51, 0.4));
+        }
+    </style>
+
+    <!-- Statistics Section -->
+    <div id="statistics-section" style="display: none;">
+        <div class="header">
+            <h1>FlowFund</h1>
+            <nav class="header-nav">
+                <a href="#" onclick="showDashboard(); return false;" class="nav-link">Dashboard</a>
+                <a href="#" onclick="showStatistics(); return false;" class="nav-link active">Statistics</a>
+            </nav>
+            <div class="user-info">
+                <span id="user-role-stats"></span>
+                <button onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="panel">
+                <h2>Overall Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 3v18h18"/>
+                                <path d="M18 17V9"/>
+                                <path d="M13 17V5"/>
+                                <path d="M8 17v-3"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Total Orders</h3>
+                            <div class="stat-value" id="stats-total-orders">--</div>
+                            <div class="stat-detail" id="stats-orders-breakdown">--</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 6v12"/>
+                                <path d="M15 9H9.5a2.5 2.5 0 0 0 0 5h5a2.5 2.5 0 0 1 0 5H9"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Total Value</h3>
+                            <div class="stat-value" id="stats-total-value">--</div>
+                            <div class="stat-detail" id="stats-value-breakdown">--</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <circle cx="12" cy="12" r="6"/>
+                                <circle cx="12" cy="12" r="2"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Milestones</h3>
+                            <div class="stat-value" id="stats-total-milestones">--</div>
+                            <div class="stat-detail" id="stats-milestone-breakdown">--</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="5" width="20" height="14" rx="2"/>
+                                <path d="M2 10h20"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <h3>Transactions</h3>
+                            <div class="stat-value" id="stats-total-transactions">--</div>
+                            <div class="stat-detail" id="stats-transaction-breakdown">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Financial Overview</h2>
+                <div class="financial-grid">
+                    <div class="financial-card">
+                        <h4>Funds Locked</h4>
+                        <div class="financial-value" id="stats-funds-locked">$--</div>
+                    </div>
+                    <div class="financial-card">
+                        <h4>Funds Released</h4>
+                        <div class="financial-value" id="stats-funds-released">$--</div>
+                    </div>
+                    <div class="financial-card">
+                        <h4>Escrow Balance</h4>
+                        <div class="financial-value" id="stats-escrow-balance">$--</div>
+                    </div>
+                    <div class="financial-card">
+                        <h4>Average Order Value</h4>
+                        <div class="financial-value" id="stats-avg-order">$--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Visual Analytics</h2>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h3>Order Status Distribution</h3>
+                        <div id="status-donut-chart" class="donut-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Financial Flow</h3>
+                        <div id="financial-bar-chart" class="bar-chart"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Milestone Progress</h3>
+                        <div id="milestone-progress-chart" class="progress-chart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Status Breakdown</h2>
+                <div id="stats-status-chart" class="status-breakdown-grid"></div>
+            </div>
+
+            <div class="panel" id="role-specific-stats">
+                <h2 id="role-stats-title">Role Specific Statistics</h2>
+                <div id="role-stats-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="admin-milestone-actions.js"></script>
+</body>
+</html>

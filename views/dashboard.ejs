@@ -1,0 +1,23 @@
+<section id="dashboard-section">
+  <% if (role === 'SUPPLIER') { %>
+    <%- include('partials/supplierOrderForm') %>
+    <%- include('partials/supplierMilestones') %>
+  <% } else if (role === 'LENDER') { %>
+    <%- include('partials/lenderDashboard') %>
+  <% } else if (role === 'ADMIN') { %>
+    <%- include('partials/adminDashboard') %>
+  <% } else { %>
+    <div class="panel">
+      <h2>Actions</h2>
+      <div>
+        <p>Dashboard role not specified.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Orders</h2>
+      <p>This is a minimal dashboard view. Client-side JS can enhance this panel.</p>
+    </div>
+  <% } %>
+</section>
+

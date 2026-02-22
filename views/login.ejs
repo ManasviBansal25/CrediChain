@@ -1,0 +1,36 @@
+<section id="login-section">
+  <div class="container">
+    <h2>Login</h2>
+    <form id="login-form">
+      <div class="form-group">
+        <label>Email:</label>
+        <input type="email" id="login-email" />
+      </div>
+      <div class="form-group">
+        <label>Password:</label>
+        <input type="password" id="login-password" />
+      </div>
+      
+      <div class="quick-login">
+        <h3>Quick Login (Demo)</h3>
+        <div class="form-group">
+          <label>Login as:</label>
+          <select id="role-selector">
+            <option value="">Select Role</option>
+            <option value="admin">ADMIN</option>
+            <option value="supplier">SUPPLIER</option>
+            <option value="lender">LENDER</option>
+          </select>
+        </div>
+      </div>
+      
+      <button type="submit">Login</button>
+      <div id="login-error" class="error"></div>
+    </form>
+    
+    <div class="auth-footer">
+      <p>Don't have an account? <a href="/signup" class="auth-link">Sign Up</a></p>
+    </div>
+  </div>
+</section>
+
